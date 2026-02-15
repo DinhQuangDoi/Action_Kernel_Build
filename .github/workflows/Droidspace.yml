@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       KERNEL_SOURCE:
-        description: 'Link Source Kernel'
+        description: 'Link Source Kernel (Full Git URL)'
         required: true
         default: 'https://github.com/ravindu644/android_kernel_realme_sm8250-droidspaces'
       KERNEL_BRANCH:
@@ -30,7 +30,7 @@ jobs:
     permissions: write-all
     
     steps:
-      # 1. Cài đặt môi trường & Checkout Source
+      # 1. Cài đặt môi trường
       - name: Cleanup & Install Dependencies
         run: |
           rm -rf ${{ github.workspace }}/*
@@ -39,16 +39,14 @@ jobs:
             curl git wget libarchive-tools python-is-python3 zip unzip tar gzip \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.inputs.KERNEL_SOURCE }} # Nếu repo private cần thêm token
-          ref: ${{ github.event.inputs.KERNEL_BRANCH }}
-          path: kernel
-          submodules: recursive # Thay thế cho lệnh git submodule update --init --recursive
-          fetch-depth: 1
+      # 2. Clone Kernel Source (SỬA LỖI: Dùng git clone thay vì actions/checkout)
+      - name: Clone Kernel Source
+        run: |
+          echo "--- Cloning Kernel ---"
+          # Clone đệ quy (recursive) để lấy luôn submodule nếu có
+          git clone --recursive --depth=1 ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel
 
-      # 2. Clone Toolchain & AnyKernel (Giống hệt build.sh của bạn)
+      # 3. Clone Toolchain & AnyKernel (Chạy bên trong thư mục kernel vừa clone)
       - name: Setup Toolchain & AnyKernel
         run: |
           cd ${{ github.workspace }}/kernel
@@ -57,20 +55,18 @@ jobs:
           git clone --depth=1 ${{ github.event.inputs.ANYKERNEL_URL }} anykernel
 
           echo "--- Cloning Toolchain ---"
-          # Clone vào thư mục 'tc' như script yêu cầu
           git clone --depth=1 ${{ github.event.inputs.TOOLCHAIN_URL }} tc
 
-      # 3. BUILD KERNEL (Logic chuyển từ hàm compile() trong build.sh)
+      # 4. BUILD KERNEL
       - name: Compile Kernel
         run: |
           cd ${{ github.workspace }}/kernel
           
           # Thiết lập biến theo đúng script gốc
-          DT=$(date +"%Y%m%d-%H%M")
           KERNEL_OUT=$(pwd)/out
           mkdir -p $KERNEL_OUT
           
-          # Đường dẫn Toolchain (Dựa trên script của bạn)
+          # Đường dẫn Toolchain (Dựa trên script gốc: tc nằm trong thư mục kernel)
           CLANG_BIN=$(pwd)/tc/clang/bin/clang
           CROSS_COMPILE_PATH=$(pwd)/tc/aarch64-linux-android-4.9/bin/aarch64-linux-android-
           
@@ -78,8 +74,7 @@ jobs:
           export KERNEL_SRC=$KERNEL_OUT
           export CLANG_TRIPLE=aarch64-linux-gnu-
           
-          # Tạo mảng Build Options như script
-          # Lưu ý: Đã bỏ 'menuconfig' vì CI không chạy được tương tác
+          # Build Options
           BUILD_ARGS=(
             O=$KERNEL_OUT
             CC=$CLANG_BIN
@@ -93,27 +88,28 @@ jobs:
           )
 
           echo "--- Applying Configs: ${{ github.event.inputs.DEFCONFIG }} ---"
-          # Script gốc chạy make config trước
+          # Chạy make config (gộp nhiều config lại)
           make "${BUILD_ARGS[@]}" ${{ github.event.inputs.DEFCONFIG }}
 
           echo "--- Starting Compilation ---"
-          # Script gốc chạy make -j
+          # Chạy build
           make "${BUILD_ARGS[@]}" -j$(nproc --all)
 
-      # 4. Đóng gói (Logic chuyển từ hàm zipping() trong build.sh)
+      # 5. Đóng gói
       - name: Zipping Kernel
         run: |
           cd ${{ github.workspace }}/kernel
           DT=$(date +"%Y%m%d-%H%M")
           ZIP_NAME="Droidspaces-El-Diablo-AOSP-${DT}.zip"
           
-          # Kiểm tra file output
+          # Đường dẫn file output
           IMG_PATH="out/arch/arm64/boot/Image"
           DTBO_PATH="out/arch/arm64/boot/dtbo.img"
           DTB_PATH="out/arch/arm64/boot/dtb"
 
           if [ ! -f "$IMG_PATH" ]; then
-            echo "Lỗi: Không tìm thấy file Image! Build thất bại."
+            echo "Lỗi: Không tìm thấy file Image tại $IMG_PATH! Build thất bại."
+            ls -R out/arch/arm64/boot/
             exit 1
           fi
 
@@ -121,29 +117,31 @@ jobs:
           cd anykernel
           rm -f *.zip
           
+          # Copy Image
           cp "../$IMG_PATH" .
           
-          # Copy dtbo nếu có
+          # Copy dtbo (nếu có)
           if [ -f "../$DTBO_PATH" ]; then
+             echo "Found dtbo.img"
              cp "../$DTBO_PATH" .
           fi
           
-          # Copy dtb nếu có
+          # Copy dtb (nếu có)
           if [ -f "../$DTB_PATH" ]; then
+             echo "Found dtb"
              cp "../$DTB_PATH" .
           fi
           
-          # Nén
+          # Nén file zip
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
           
-          # Di chuyển ra ngoài để upload
+          # Di chuyển ra folder release
           mkdir -p ../final_zip
           mv "$ZIP_NAME" ../final_zip/
           
-          echo "ZIP_FILE_PATH=$(pwd)/../final_zip/$ZIP_NAME" >> $GITHUB_ENV
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
-      # 5. Upload lên Release
+      # 6. Upload
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
@@ -151,6 +149,6 @@ jobs:
           name: ${{ env.ZIP_NAME }}
           tag_name: ${{ github.run_id }}
           body: |
-             Build Date: ${{ env.DT }}
-             Config: ${{ github.event.inputs.DEFCONFIG }}
+             Build Date: $(date)
              Source: ${{ github.event.inputs.KERNEL_SOURCE }}
+             Config: ${{ github.event.inputs.DEFCONFIG }}
