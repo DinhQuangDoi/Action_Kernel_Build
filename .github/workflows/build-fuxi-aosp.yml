@@ -1,0 +1,51 @@
+name: Build Kernel (Fuxi)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone KernelSU
+        run: |
+          git submodule update --init --recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc cpio llvm clang bison flex libssl-dev libfl-dev \
+            python3 git wget
+
+      - name: Download Clang
+        run: |
+          mkdir -p /opt/clang
+          cd /opt/clang
+          wget -q https://storage.googleapis.com/cros-artifacts/prod-artifacts/chromium-org/clang/Clin(clang)-14054515/bin/clang.tar.gz -O clang.tar.gz
+          tar -xf clang.tar.gz
+          rm clang.tar.gz
+          echo "/opt/clang/bin" >> $GITHUB_PATH
+
+      - name: Build Kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export TARGET_PRODUCT=fuxi
+          export PATH="/opt/clang/bin:$PATH"
+
+          MAKE_PARAMS="LLVM=1 LLVM_IAS=1 O=out"
+          make $MAKE_PARAMS fuxi_defconfig -j$(nproc --all)
+          make $MAKE_PARAMS Image -j$(nproc --all)
+
+      - name: Upload Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-Image
+          path: out/arch/arm64/boot/Image
+          retention-days: 7
