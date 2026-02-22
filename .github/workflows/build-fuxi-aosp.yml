@@ -22,7 +22,7 @@ jobs:
         run: |
           rm -rf ${{ github.workspace }}/*
           sudo apt-get update
-          sudo apt-get install -y build-essential lld bc cpio llvm bison flex libssl-dev libfl-dev \
+          sudo apt-get install -y build-essential bc lld cpio llvm bison flex libssl-dev libfl-dev \
             curl git wget libarchive-tools python-is-python3 zip unzip tar gzip \
             gcc-aarch64-linux-gnu
 
@@ -35,9 +35,15 @@ jobs:
       - name: Clone Kernel Source
         run: |
           echo "--- Cloning Kernel ---"
-          git clone --depth 1 ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel
+          git clone ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel --depth 1
           cd kernel
-          git submodule update --init --recursive
+          
+          # Remove invalid KernelSU submodule if exists
+          sed -i '/KernelSU/d' .gitmodules 2>/dev/null || true
+          rm -rf KernelSU 2>/dev/null || true
+          rm -rf .git/modules/KernelSU 2>/dev/null || true
+          
+          git submodule update --init --recursive --depth 1 || true
 
       - name: Compile Kernel
         run: |
