@@ -20,6 +20,7 @@ jobs:
     steps:
       - name: Cleanup & Install Dependencies
         run: |
+        
           rm -rf ${{ github.workspace }}/*
           sudo apt-get update
           sudo apt-get install -y build-essential bc lld cpio llvm bison flex libssl-dev libfl-dev \
@@ -28,12 +29,14 @@ jobs:
 
       - name: Install Clang
         run: |
+        
           sudo apt-get install -y clang llvm
           clang --version
           llvm-strip --version
 
       - name: Clone Kernel Source
         run: |
+        
           echo "--- Cloning Kernel ---"
           git clone ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel --depth 1
           cd kernel
@@ -47,16 +50,30 @@ jobs:
 
       - name: Compile Kernel
         run: |
+        
+          # 1. Copy file fuxi_defconfig đã mod của bạn đè vào source kernel vừa clone
+          cp -f ${{ github.workspace }}/arch/arm64/configs/fuxi_defconfig ${{ github.workspace }}/kernel/arch/arm64/configs/
+      
+          # 2. Tạo thư mục vendor và copy file susfs.config vào source kernel
+          mkdir -p ${{ github.workspace }}/kernel/arch/arm64/configs/vendor/
+          cp -f ${{ github.workspace }}/arch/arm64/configs/vendor/susfs.config ${{ github.workspace }}/kernel/arch/arm64/configs/vendor/
+      
+          # 3. cd vào thư mục kernel để bắt đầu build
           cd ${{ github.workspace }}/kernel
-          
+      
           export ARCH=arm64
           export SUBARCH=arm64
           export TARGET_PRODUCT=fuxi
 
           MAKE_PARAMS="LLVM=1 LLVM_IAS=1 O=out"
-          make $MAKE_PARAMS fuxi_defconfig -j$(nproc --all)
-          ./scripts/kconfig/merge_config.sh -m -O out out/.config vendor/susfs.config
-          make $MAKE_PARAMS olddefconfig
+      
+          # 4. Nối cấu hình SuSFS vào defconfig (Lúc này file chắc chắn đã tồn tại đúng chỗ)
+          cat arch/arm64/configs/vendor/susfs.config >> arch/arm64/configs/fuxi_defconfig
+      
+          # 5. Chạy Make (Không dùng -j ở bước tạo defconfig)
+          make $MAKE_PARAMS fuxi_defconfig
+      
+          # 6. Build Kernel
           make $MAKE_PARAMS Image -j$(nproc --all)
 
       - name: Upload Release
