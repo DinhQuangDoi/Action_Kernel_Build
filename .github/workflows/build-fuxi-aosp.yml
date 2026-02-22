@@ -18,63 +18,40 @@ jobs:
     permissions: write-all
     
     steps:
-      # 1. BƯỚC BẮT BUỘC: Kéo toàn bộ file trong repo của bạn (chứa các file config) về máy ảo
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Cleanup & Install Dependencies
+      - name: Install Dependencies
         run: |
-          # Đã xóa dòng rm -rf để tránh tự xóa file config của chính mình
           sudo apt-get update
-          sudo apt-get install -y build-essential bc lld cpio llvm bison flex libssl-dev libfl-dev \
+          sudo apt-get install -y build-essential bc cpio llvm clang bison flex libssl-dev libfl-dev \
             curl git wget libarchive-tools python-is-python3 zip unzip tar gzip \
-            gcc-aarch64-linux-gnu
-
-      - name: Install Clang
-        run: |
-          sudo apt-get install -y clang llvm
-          clang --version
-          llvm-strip --version
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Clone Kernel Source
         run: |
-          echo "--- Cloning Kernel ---"
-          # Clone source kernel từ mạng về thư mục 'kernel'
-          git clone ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel --depth 1
+          git clone --recursive --depth=1 ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel
           cd kernel
-          
-          # Remove invalid KernelSU submodule if exists
           sed -i '/KernelSU/d' .gitmodules 2>/dev/null || true
-          rm -rf KernelSU 2>/dev/null || true
-          rm -rf .git/modules/KernelSU 2>/dev/null || true
-          
+          rm -rf KernelSU .git/modules/KernelSU 2>/dev/null || true
           git submodule update --init --recursive --depth 1 || true
 
       - name: Compile Kernel
         run: |
-          # 1. Copy file fuxi_defconfig từ repo của bạn đè vào source kernel vừa clone
           cp -f ${{ github.workspace }}/arch/arm64/configs/fuxi_defconfig ${{ github.workspace }}/kernel/arch/arm64/configs/
-      
-          # 2. Tạo thư mục vendor và copy file susfs.config vào
           mkdir -p ${{ github.workspace }}/kernel/arch/arm64/configs/vendor/
           cp -f ${{ github.workspace }}/arch/arm64/configs/vendor/susfs.config ${{ github.workspace }}/kernel/arch/arm64/configs/vendor/
-      
-          # 3. cd vào thư mục kernel để bắt đầu build
+          
           cd ${{ github.workspace }}/kernel
-      
+          
           export ARCH=arm64
           export SUBARCH=arm64
           export TARGET_PRODUCT=fuxi
-
           MAKE_PARAMS="LLVM=1 LLVM_IAS=1 O=out"
-      
-          # 4. Nối cấu hình SuSFS vào defconfig (Lúc này file chắc chắn đã tồn tại)
+
           cat arch/arm64/configs/vendor/susfs.config >> arch/arm64/configs/fuxi_defconfig
-      
-          # 5. Chạy Make tạo file .config
+          
           make $MAKE_PARAMS fuxi_defconfig
-      
-          # 6. Build Kernel
           make $MAKE_PARAMS Image -j$(nproc --all)
 
       - name: Upload Release
@@ -85,4 +62,5 @@ jobs:
           body: |
              Build Date: $(date)
              Source: ${{ github.event.inputs.KERNEL_SOURCE }}
+             Branch: ${{ github.event.inputs.KERNEL_BRANCH }}
              
