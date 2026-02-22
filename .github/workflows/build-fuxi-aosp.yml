@@ -1,51 +1,63 @@
-name: Build Kernel (Fuxi)
+name: Build Kernel Fuxi
 
 on:
   workflow_dispatch:
+    inputs:
+      KERNEL_SOURCE:
+        description: 'Link Source Kernel'
+        required: true
+        default: 'https://github.com/DinhQuangDoi/android_kernel_xiaomi_sm8550.git'
+      KERNEL_BRANCH:
+        description: 'Branch'
+        required: true
+        default: '16.2-SukiSu'
 
 jobs:
-  build:
+  Build-Kernel:
     runs-on: ubuntu-latest
+    permissions: write-all
     
     steps:
-      - name: Checkout Kernel Source
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Clone KernelSU
+      - name: Cleanup & Install Dependencies
         run: |
+          rm -rf ${{ github.workspace }}/*
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc cpio llvm bison flex libssl-dev libfl-dev \
+            curl git wget libarchive-tools python-is-python3 zip unzip tar gzip \
+            gcc-aarch64-linux-gnu
+
+      - name: Install Clang
+        run: |
+          sudo apt-get install -y clang llvm
+          clang --version
+          llvm-strip --version
+
+      - name: Clone Kernel Source
+        run: |
+          echo "--- Cloning Kernel ---"
+          git clone --recursive ${{ github.event.inputs.KERNEL_SOURCE }} -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel
+          cd kernel
           git submodule update --init --recursive
 
-      - name: Install Dependencies
+      - name: Compile Kernel
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc cpio llvm clang bison flex libssl-dev libfl-dev \
-            python3 git wget
-
-      - name: Download Clang
-        run: |
-          mkdir -p /opt/clang
-          cd /opt/clang
-          wget -q "https://storage.googleapis.com/cros-artifacts/prod-artifacts/chromium-org/clang/Clin(clang)-14054515/bin/clang.tar.gz" -O clang.tar.gz
-          tar -xf clang.tar.gz
-          rm clang.tar.gz
-          echo "/opt/clang/bin" >> $GITHUB_PATH
-
-      - name: Build Kernel
-        run: |
+          cd ${{ github.workspace }}/kernel
+          
           export ARCH=arm64
           export SUBARCH=arm64
           export TARGET_PRODUCT=fuxi
-          export PATH="/opt/clang/bin:$PATH"
 
           MAKE_PARAMS="LLVM=1 LLVM_IAS=1 O=out"
           make $MAKE_PARAMS fuxi_defconfig -j$(nproc --all)
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config vendor/susfs.config
+          make $MAKE_PARAMS olddefconfig
           make $MAKE_PARAMS Image -j$(nproc --all)
 
-      - name: Upload Image
-        uses: actions/upload-artifact@v4
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: kernel-Image
-          path: out/arch/arm64/boot/Image
-          retention-days: 7
+          files: ${{ github.workspace }}/kernel/out/arch/arm64/boot/Image
+          tag_name: ${{ github.run_id }}
+          body: |
+             Build Date: $(date)
+             Source: ${{ github.event.inputs.KERNEL_SOURCE }}
