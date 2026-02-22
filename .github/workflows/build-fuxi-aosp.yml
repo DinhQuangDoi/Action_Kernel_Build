@@ -27,7 +27,7 @@ jobs:
         run: |
           mkdir -p /opt/clang
           cd /opt/clang
-          wget -q https://storage.googleapis.com/cros-artifacts/prod-artifacts/chromium-org/clang/Clin(clang)-14054515/bin/clang.tar.gz -O clang.tar.gz
+          wget -q "https://storage.googleapis.com/cros-artifacts/prod-artifacts/chromium-org/clang/Clin(clang)-14054515/bin/clang.tar.gz" -O clang.tar.gz
           tar -xf clang.tar.gz
           rm clang.tar.gz
           echo "/opt/clang/bin" >> $GITHUB_PATH
