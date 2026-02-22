@@ -10,7 +10,7 @@ on:
       KERNEL_BRANCH:
         description: 'Branch'
         required: true
-        default: '16.2-SukiSu'
+        default: '16.2-SukiSU'
 
 jobs:
   Build-Kernel:
