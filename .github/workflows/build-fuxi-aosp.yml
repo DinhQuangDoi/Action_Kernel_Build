@@ -22,7 +22,7 @@ jobs:
         run: |
           rm -rf ${{ github.workspace }}/*
           sudo apt-get update
-          sudo apt-get install -y build-essential bc cpio llvm bison flex libssl-dev libfl-dev \
+          sudo apt-get install -y build-essential lld bc cpio llvm bison flex libssl-dev libfl-dev \
             curl git wget libarchive-tools python-is-python3 zip unzip tar gzip \
             gcc-aarch64-linux-gnu
 
